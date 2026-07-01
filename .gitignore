@@ -1,0 +1,26 @@
+# Generated tiles and working media — regenerate with server/tile_video.py
+server/tiles_out/
+server/*.mp4
+server/_preview*.png
+server/basecheck.mp4
+
+# Python
+__pycache__/
+*.pyc
+server/.venv/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Unity (only relevant if the full project is ever added)
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]serSettings/
+*.csproj
+*.sln
