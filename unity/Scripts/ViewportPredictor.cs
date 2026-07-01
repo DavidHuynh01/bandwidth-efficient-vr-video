@@ -52,19 +52,36 @@ namespace TileStreaming
             _lastForward = fwd;
         }
 
+        // where the (predicted) gaze centre sits in lon/lat
+        void GazeCenter(out float yaw, out float pitch)
+        {
+            Vector3 fwd = headTransform.forward;
+            yaw = Mathf.Atan2(fwd.x, fwd.z) * Mathf.Rad2Deg
+                  + _angularVelDeg.x * predictionSeconds;
+            pitch = Mathf.Asin(Mathf.Clamp(fwd.y, -1f, 1f)) * Mathf.Rad2Deg
+                    + _angularVelDeg.y * predictionSeconds;
+        }
+
+        // angular distance in degrees from the gaze centre to a tile's centre.
+        // lets the stream manager rank tiles and pick a quality per tile.
+        public float GazeAngleTo(TileInfo t, TileManifest m)
+        {
+            if (headTransform == null || m == null) return 0f;
+            GazeCenter(out float yaw, out float pitch);
+            float tileYaw = -180f + (t.col + 0.5f) * (360f / m.cols);
+            float tilePitch = 90f - (t.row + 0.5f) * (180f / m.rows);
+            float dYaw = Mathf.DeltaAngle(yaw, tileYaw);
+            float dPitch = pitch - tilePitch;
+            return Mathf.Sqrt(dYaw * dYaw + dPitch * dPitch);
+        }
+
         // Returns the set of tile ids that should be fetched this frame.
         public HashSet<int> VisibleTiles(TileManifest m)
         {
             var result = new HashSet<int>();
             if (headTransform == null || m == null) return result;
 
-            Vector3 fwd = headTransform.forward;
-            float centerYaw = Mathf.Atan2(fwd.x, fwd.z) * Mathf.Rad2Deg;     // -180..180
-            float centerPitch = Mathf.Asin(Mathf.Clamp(fwd.y, -1f, 1f)) * Mathf.Rad2Deg; // -90..90
-
-            // Extrapolate where the user will be looking shortly.
-            centerYaw += _angularVelDeg.x * predictionSeconds;
-            centerPitch += _angularVelDeg.y * predictionSeconds;
+            GazeCenter(out float centerYaw, out float centerPitch);
 
             float halfH = horizontalFovDeg * 0.5f + marginDeg;
             float halfV = verticalFovDeg * 0.5f + marginDeg;

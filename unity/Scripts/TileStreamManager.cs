@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.Networking;
 using UnityEngine.Video;
@@ -34,6 +35,10 @@ namespace TileStreaming
         [Tooltip("Fetch fewer high-res tiles as coverage grows — more blur, less work.")]
         public bool fetchLessWhenBlurred = true;
 
+        [Header("Tiered quality")]
+        [Tooltip("Tiles within this many degrees of the gaze stream at high quality; the rest of the viewport takes the low tier, which the blur hides.")]
+        [Range(10f, 90f)] public float highQualityAngle = 35f;
+
         [Header("Decoder pool")]
         [Tooltip("Max simultaneous tile decoders. Keep small on Quest 2.")]
         public int decoderPoolSize = 6;
@@ -46,6 +51,8 @@ namespace TileStreaming
         private RenderTexture _combined;   // detail layer: tiles where fetched, transparent elsewhere
         private int _currentChunk;
         private int _rebufferEvents;
+        private int _lastHighCount;        // tiles fetched high/low last segment, for /report
+        private int _lastLowCount;
 
         // one slot per tile decoder
         private VideoPlayer[] _pool;
@@ -136,15 +143,30 @@ namespace TileStreaming
             while (true)
             {
                 var visible = viewport.VisibleTiles(_manifest);
-                string quality = bandwidth.PickQuality();
+                string netQuality = bandwidth.PickQuality();
 
+                // closest to the gaze first, so centre tiles always win a decoder
+                var ordered = visible
+                    .OrderBy(id => viewport.GazeAngleTo(_manifest.tiles[id], _manifest))
+                    .ToList();
+
+                int high = 0, low = 0;
                 int slot = 0;
-                foreach (int tileId in visible)
+                foreach (int tileId in ordered)
                 {
                     if (slot >= _pool.Length) break;
-                    StartCoroutine(FetchTile(slot, tileId, quality, _currentChunk));
+
+                    // centre tiles stream high; the outer ring of the viewport
+                    // takes the low tier. bad network forces everything low.
+                    float ang = viewport.GazeAngleTo(_manifest.tiles[tileId], _manifest);
+                    string q = (netQuality == "low" || ang > highQualityAngle) ? "low" : "high";
+                    if (q == "high") high++; else low++;
+
+                    StartCoroutine(FetchTile(slot, tileId, q, _currentChunk));
                     slot++;
                 }
+                _lastHighCount = high;
+                _lastLowCount = low;
 
                 if (_manifest.HasBase)
                     StartCoroutine(FetchBase(_currentChunk));
@@ -271,6 +293,8 @@ namespace TileStreaming
                 {
                     viewport_tile_count = visible.Count,
                     total_tiles = _manifest.TileCount,
+                    high_quality_tiles = _lastHighCount,
+                    low_quality_tiles = _lastLowCount,
                     bandwidth_kbps = Mathf.RoundToInt(bandwidth.EstimatedKbps),
                     rebuffer_events = _rebufferEvents,
                     quality = bandwidth.PickQuality(),
@@ -297,6 +321,8 @@ namespace TileStreaming
     {
         public int viewport_tile_count;
         public int total_tiles;
+        public int high_quality_tiles;
+        public int low_quality_tiles;
         public int bandwidth_kbps;
         public int rebuffer_events;
         public string quality;
